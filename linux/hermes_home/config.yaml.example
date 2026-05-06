@@ -1,0 +1,11 @@
+# Hermes Agent Portable 配置
+# 文档: https://github.com/NousResearch/hermes-agent
+
+# 默认模型
+model:
+  provider: ""    # anthropic, openai, openrouter, etc.
+  model: ""       # claude-sonnet-4-20250514, gpt-4o, etc.
+
+# 显示设置
+display:
+  skin: default   # 主题: default, ares, mono, slate
