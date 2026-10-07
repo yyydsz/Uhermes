@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -165,7 +166,12 @@ def main() -> int:
                                      encoding="utf-8", errors="replace",
                                      timeout=300, env=env)
                 text = (out.stdout or "") + (out.stderr or "")
-                first = next((l for l in text.splitlines() if "Hermes Agent" in l), "").strip()
+                # 只认真正的版本行（"Hermes Agent v0.21.5 (2026.9.24)"）。
+                # 不能用宽泛的 "Hermes Agent"：首启横幅里那句中文
+                # "Uhermes —— U盘里的 Hermes Agent（便携版）" 也会命中，
+                # 断言就变成了"横幅打印出来了"，而不是"CLI 跑起来了"。
+                first = next((l for l in text.splitlines()
+                              if re.search(r"Hermes Agent v\d+\.\d+", l)), "").strip()
                 rep.check(out.returncode == 0 and bool(first),
                           f"hermes CLI 可运行：{first or text.strip()[:160]}")
             except Exception as exc:

@@ -88,7 +88,7 @@ KIMI_API_KEY=xxx                 # 月之暗面
 ./start.sh setup                 # 配置向导
 ./start.sh model                 # 切换模型
 ./start.sh skills                # 管理技能
-./start.sh gateway               # 接入 Telegram / Discord / Slack
+./start.sh gateway run           # 接消息平台（前台运行，关窗口即退出）
 ./start.sh cron                  # 定时任务
 ./start.sh logs                  # 看日志（agent.log / errors.log）
 ./start.sh doctor                # 体检：环境、依赖、配置
@@ -123,6 +123,7 @@ Uhermes-windows/  (或 Uhermes-linux/)
 │   ├── cron/              定时任务
 │   ├── lazy-deps/         按需安装的可选依赖（跟着 U 盘走）
 │   └── state.db           会话数据库（SQLite）
+├── stop.bat / stop.sh     停止 gateway 并清除宿主机自启项（拔盘前用）
 └── bin/                   可选：随包的 uv（用 --with-uv 构建时才有）
 ```
 
@@ -274,24 +275,41 @@ Python 运行时**不需要** Node。以下功能需要系统里已有 Node.js�
 
 ### Q: 关掉了命令行窗口，为什么 U 盘还是弹不出来？
 
-因为 `hermes gateway` **故意脱离控制台运行**（进程带 `detached` / `breakaway` 标志，日志里写得很明白），关窗口不会结束它 —— 后台服务本来就设计成要常驻，才能收消息、跑定时任务。进程占着 U 盘上的文件，Windows 自然拒绝弹出。
+先说结论：**现在的便携包默认不会让这种情况发生**（见下面的「便携包的默认策略」）。如果你手上是旧包，或者手动放行过后台服务，按「处理办法」清理一次即可。
 
-更隐蔽的是第二层：**gateway 还会在宿主机上注册开机自启**。Windows 上先试计划任务，失败则退化成一个启动文件夹里的 VBS（实测这台机器就是退化路径）；Linux/macOS 上是 systemd user unit / LaunchAgent。这些自启项的路径指向 U 盘，所以只要 U 盘插着、你又登录了系统，gateway 就会自己起来把盘重新占住。
+原因有两层：
 
-**处理办法**（在便携包里执行）：
+1. **后台 gateway 是故意脱离控制台运行的**（进程带 `detached` / `breakaway` 标志），关窗口不会结束它 —— 它本来就设计成要常驻，才能收消息、跑定时任务。进程占着 U 盘上的文件，系统自然拒绝弹出。
+2. **更隐蔽的一层：它会注册开机自启**。Windows 上先试计划任务，失败则退化成启动文件夹里的 VBS（实测那台机器走的就是退化路径）；Linux/macOS 上是 systemd user unit / LaunchAgent。这些自启项路径指向 U 盘，于是只要盘插着、你又登录了系统，gateway 就自己起来把盘重新占住 —— 形成一个"拔不掉"的循环。
+
+**便携包的默认策略**（`hermes_boot.py` 实现）：
+
+| 命令 | 便携包行为 | 理由 |
+|---|---|---|
+| `gateway run`（或裸 `gateway`） | ✅ 放行 | 实测是**真前台**：关掉窗口进程即退出，且不装自启 |
+| `gateway stop / uninstall / status / list` | ✅ 放行 | 清理与诊断，永远允许 |
+| `gateway start / install / restart / setup` | ⛔ 默认拦截 | 会在**这台电脑**上注册开机自启，路径指向 U 盘 |
+| 任何 gateway 命令退出时 | 🧹 自动清理检测到的自启残留 | 保证"用完不留痕" |
+
+被拦截时它会打印放行方法（`UHERMES_ALLOW_GATEWAY_SERVICE=1`），确实需要长期常驻的人可以显式开。
+
+**处理办法**（旧包或已残留时，在便携包里执行）：
 
 ```bash
-./start.sh gateway status      # 先看有没有常驻进程
-./start.sh gateway stop        # 停掉（会优雅排空）
-./start.sh gateway uninstall   # 连宿主机上的自启项一起清掉
+stop.bat          # Windows：一键停止 gateway + 清除宿主机自启项
+./stop.sh         # Linux
 ```
 
-然后就能正常弹出了。看完这两条命令的差别很值得记：
+等价于下面两条命令，记住它们的区别很有用：
 
-- `stop` 只是停进程，**自启项还在** —— 下次登录它会再起来；
-- `uninstall` 才会删掉宿主机的启动项（可逆，将来 `gateway install` 能装回来）。
+```bash
+./start.sh gateway stop        # 只停进程，自启项还在 —— 下次登录它会再起来
+./start.sh gateway uninstall   # 连宿主机的自启项一起删掉（可逆，install 能装回来）
+```
 
-**借用别人的电脑时**：不要在 U 盘上跑 `gateway start`/让后台服务常驻，那会在对方机器上留下开机自启；也不需要消息平台时，普通 `start.sh` 的对话不会留下任何常驻进程。
+**借用别人的电脑时**：用 `gateway run` 前台跑（或干脆不跑 gateway）就好，不会有任何残留；
+
+> ⚠️ 有一种情况自动清理覆盖不到：**直接叉掉窗口**。那时 Python 进程被杀，收尾代码没有机会执行 —— 用 `stop.bat` / `stop.sh` 补一次即可。
 
 ### Q: 能装第三方技能吗？
 

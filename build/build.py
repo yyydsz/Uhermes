@@ -60,6 +60,7 @@ PLATFORMS = {
         "python_exe": "python.exe",
         "site_packages": "Lib/site-packages",
         "launcher": "windows/start.bat",
+        "stop": "windows/stop.bat",
         "uv_asset": "uv-{v}-x86_64-pc-windows-msvc.zip",
     },
     "linux": {
@@ -68,6 +69,7 @@ PLATFORMS = {
         "python_exe": "bin/python3.11",
         "site_packages": "lib/python3.11/site-packages",
         "launcher": "linux/start.sh",
+        "stop": "linux/stop.sh",
         "uv_asset": "uv-{v}-x86_64-unknown-linux-gnu.tar.gz",
     },
 }
@@ -433,17 +435,17 @@ def assemble(
     shutil.copytree(stage / "python", out_dir / "python", symlinks=True)
     # 2) 上游源码树
     shutil.copytree(stage / "hermes-agent", out_dir / "hermes-agent", symlinks=True)
-    # 3) 启动器
-    launcher_src = REPO / cfg["launcher"]
-    launcher_dst = out_dir / launcher_src.name
-    shutil.copy2(launcher_src, launcher_dst)
-    if platform == "linux":
-        # 防御性归一：Windows 工作区可能是 CRLF，而 CRLF 的 shell 脚本在 Linux 上
-        # 会以 "bad interpreter: /bin/bash^M" 直接失败（.gitattributes 已锁 LF，
-        # 但用户可能从别处拷来文件或改过配置）。
-        data = launcher_dst.read_bytes().replace(b"\r\n", b"\n")
-        launcher_dst.write_bytes(data)
-        os.chmod(launcher_dst, 0o755)
+    # 3) 启动器 + 清理脚本（stop 用于停止 gateway 并移除宿主机自启，之后才能安全拔盘）
+    for key in ("launcher", "stop"):
+        src = REPO / cfg[key]
+        dst = out_dir / src.name
+        shutil.copy2(src, dst)
+        if platform == "linux":
+            # 防御性归一：Windows 工作区可能是 CRLF，而 CRLF 的 shell 脚本在 Linux 上
+            # 会以 "bad interpreter: /bin/bash^M" 直接失败（.gitattributes 已锁 LF，
+            # 但用户可能从别处拷来文件或改过配置）。
+            dst.write_bytes(dst.read_bytes().replace(b"\r\n", b"\n"))
+            os.chmod(dst, 0o755)
     # 4) 启动引导
     shutil.copy2(REPO / "shared" / "hermes_boot.py", out_dir / "hermes_boot.py")
 
