@@ -272,6 +272,27 @@ Python 运行时**不需要** Node。以下功能需要系统里已有 Node.js�
 - **运行中别拔盘**：SQLite 与正在写的日志会受损。
 - **NTFS U 盘**在 Windows 上表现最好；Linux 上需要 `ntfs-3g`。
 
+### Q: 关掉了命令行窗口，为什么 U 盘还是弹不出来？
+
+因为 `hermes gateway` **故意脱离控制台运行**（进程带 `detached` / `breakaway` 标志，日志里写得很明白），关窗口不会结束它 —— 后台服务本来就设计成要常驻，才能收消息、跑定时任务。进程占着 U 盘上的文件，Windows 自然拒绝弹出。
+
+更隐蔽的是第二层：**gateway 还会在宿主机上注册开机自启**。Windows 上先试计划任务，失败则退化成一个启动文件夹里的 VBS（实测这台机器就是退化路径）；Linux/macOS 上是 systemd user unit / LaunchAgent。这些自启项的路径指向 U 盘，所以只要 U 盘插着、你又登录了系统，gateway 就会自己起来把盘重新占住。
+
+**处理办法**（在便携包里执行）：
+
+```bash
+./start.sh gateway status      # 先看有没有常驻进程
+./start.sh gateway stop        # 停掉（会优雅排空）
+./start.sh gateway uninstall   # 连宿主机上的自启项一起清掉
+```
+
+然后就能正常弹出了。看完这两条命令的差别很值得记：
+
+- `stop` 只是停进程，**自启项还在** —— 下次登录它会再起来；
+- `uninstall` 才会删掉宿主机的启动项（可逆，将来 `gateway install` 能装回来）。
+
+**借用别人的电脑时**：不要在 U 盘上跑 `gateway start`/让后台服务常驻，那会在对方机器上留下开机自启；也不需要消息平台时，普通 `start.sh` 的对话不会留下任何常驻进程。
+
 ### Q: 能装第三方技能吗？
 
 能。`./start.sh skills` 走官方技能管理，技能落在 `hermes_home/skills/`，跟着便携包走。也可以用 `skills.external_dirs` 指向 U 盘上的共享技能目录，多个便携包复用同一份技能。
