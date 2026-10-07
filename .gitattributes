@@ -1,0 +1,26 @@
+# 换行符策略 —— 这不是洁癖，是功能问题：
+# Windows 上默认 core.autocrlf=true 会把检出文件变成 CRLF，而 CRLF 的 shell 脚本
+# 在 Linux 上会以 "bad interpreter: /bin/bash^M" 失败；构建器又是从工作区拷贝
+# 到便携包的，所以必须在 git 层就锁住。
+
+* text=auto eol=lf
+
+# 明确需要 LF 的（Linux 端执行）
+*.sh   text eol=lf
+*.py   text eol=lf
+*.env  text eol=lf
+*.txt  text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+
+# Windows 批处理保持 CRLF（cmd.exe 对 LF-only 的 .bat 在标签跳转上有已知问题）
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制资源不做任何转换
+*.gif  binary
+*.png  binary
+*.zip  binary
+*.tar.gz binary

@@ -383,9 +383,16 @@ def assemble(
     # 2) 上游源码树
     shutil.copytree(stage / "hermes-agent", out_dir / "hermes-agent", symlinks=True)
     # 3) 启动器
-    shutil.copy2(REPO / cfg["launcher"], out_dir / Path(cfg["launcher"]).name)
+    launcher_src = REPO / cfg["launcher"]
+    launcher_dst = out_dir / launcher_src.name
+    shutil.copy2(launcher_src, launcher_dst)
     if platform == "linux":
-        os.chmod(out_dir / "start.sh", 0o755)
+        # 防御性归一：Windows 工作区可能是 CRLF，而 CRLF 的 shell 脚本在 Linux 上
+        # 会以 "bad interpreter: /bin/bash^M" 直接失败（.gitattributes 已锁 LF，
+        # 但用户可能从别处拷来文件或改过配置）。
+        data = launcher_dst.read_bytes().replace(b"\r\n", b"\n")
+        launcher_dst.write_bytes(data)
+        os.chmod(launcher_dst, 0o755)
     # 4) 启动引导
     shutil.copy2(REPO / "shared" / "hermes_boot.py", out_dir / "hermes_boot.py")
 
