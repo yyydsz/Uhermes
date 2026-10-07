@@ -143,8 +143,9 @@ Uhermes-windows/  (或 Uhermes-linux/)
 ### 便携场景值得改的几项
 
 ```yaml
-# U盘是 exFAT/FAT32、或放在网络盘上时：WAL 模式需要可靠的文件锁，
-# 建议改成 delete，否则 SQLite 可能报 WAL 不兼容。
+# 仅当数据库所在文件系统不支持可靠文件锁时才需要（网络盘 NFS/SMB、macOS 的
+# virtiofs、Linux 上挂载的 exFAT/FUSE 卷）。
+# 实测：Windows + exFAT 的 U 盘上 WAL 工作正常，可保持默认。
 database:
   journal_mode: "delete"
 
@@ -231,7 +232,9 @@ Python 运行时**不需要** Node。以下功能需要系统里已有 Node.js�
 
 ### Q: 从 U 盘直接跑有什么注意事项？
 
-- **文件系统**：exFAT/FAT32 没有 POSIX 权限与可靠文件锁 —— Linux 下先 `chmod +x start.sh python/bin/*`，并把 `database.journal_mode` 设为 `delete`。追求稳定建议把包放 U 盘、数据目录放本地盘（改 `HERMES_HOME` 环境变量指向本地目录即可）。
+- **解压**：往 U 盘解压 15,000+ 个小文件比较慢（实测 exFAT U 盘约 8 分钟），一次性的事，之后就正常了。也可以在本机解压好再整个目录拷过去。
+- **Linux 下的执行权限**：exFAT/FAT32 没有 POSIX 权限位，解压后先 `chmod +x start.sh python/bin/*`。Windows 侧不受影响。
+- **SQLite**：默认的 WAL 模式**在 Windows + exFAT U 盘上实测正常**，不用改。只有放在网络盘（NFS/SMB）、macOS 的 virtiofs、或 Linux 上挂载的 exFAT/FUSE 卷上时，才建议把 `database.journal_mode` 改成 `delete`（Hermes 检测到不兼容也会自动退回）。
 - **运行中别拔盘**：SQLite 与正在写的日志会受损。
 - **NTFS U 盘**在 Windows 上表现最好；Linux 上需要 `ntfs-3g`。
 
@@ -329,8 +332,10 @@ PBS_RELEASE=20261003
 |---|---|
 | Windows 包（`--extras all`） | ✅ 实测通过：`hermes --version`、`doctor`、`config get`、首启自动生成配置骨架、**整体搬迁到含空格与中文的新路径后仍可运行**、`hermes update` 被拦截（exit 2） |
 | 结构自检 | ✅ `python build/verify.py dist/Uhermes-windows` 全部通过（0 失败 / 0 警告） |
+| **真 U 盘（exFAT, Kingston 28GB）** | ✅ 实测通过：zip 拷到 U 盘后 SHA256 一致；在 U 盘上解压 492 秒 / 400.2 MB / 15,719 文件与源一致；**从 U 盘直接运行** `--version`、`doctor`、`config get` 均正常；首启在 U 盘上生成配置骨架；**SQLite WAL 在 exFAT 上实测可用**（`journal_mode=wal` 生效、写入读回无误） |
 | 交叉安装机制 | ✅ 已验证 `--python-platform x86_64-unknown-linux-gnu` 解析出的是真正的 Linux wheel（`*.cpython-311-x86_64-linux-gnu.so`，无 Windows `.pyd`） |
 | Linux 包的实机运行 | ⚠️ **未验证**：本机没有可用的 Linux 环境（WSL 不可用、无 Docker），且运行时归档在本机构建时下载不稳定。发布 Linux 包前请在 Linux 机器上构建并跑一次 `python build/verify.py dist/Uhermes-linux` |
+| 插到**另一台没装 Python 的电脑** | ⚠️ 只有你能测：这一步验证的是「U 盘即插即用」的最终承诺 |
 
 ---
 
