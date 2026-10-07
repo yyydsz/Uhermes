@@ -372,14 +372,21 @@ python build/build.py --check            # 查上游有没有新版本
 
 ### 自检
 
-构建完（或拿到别人给的包）之后跑一次结构自检。本机平台与包目标平台一致时，它还会真正启动解释器并运行 `hermes --version`：
+两个脚本分工不同：**`verify.py` 查结构，`smoke_test.py` 查行为**。
 
 ```bash
+# 1) 结构自检：文件是否齐全、依赖是否属于目标平台、zip 权限位…
 python build/verify.py dist/Uhermes-windows
 python build/verify.py dist/Uhermes-linux
+
+# 2) 行为冒烟：真的去跑启动器，验证用户会遇到的路径
+python build/smoke_test.py dist/Uhermes-windows
+python build/smoke_test.py dist/Uhermes-windows.zip   # 先解压再测（用户真实路径）
 ```
 
-检查内容：启动器（含 CRLF 检查，避免 Linux 上 `bad interpreter`）、便携解释器、site-packages 里原生扩展是否属于目标平台（Windows 应见 `.pyd`、Linux 应见 `.so`，出现错平台扩展直接判失败）、源码树关键文件、配置模板与离线参考、以及 Linux zip 内 `start.sh` 与 `python/bin/*` 的可执行位。
+`verify.py` 检查：启动器（含 CRLF 检查，避免 Linux 上 `bad interpreter`）、便携解释器、site-packages 里原生扩展是否属于目标平台（Windows 应见 `.pyd`、Linux 应见 `.so`，出现错平台扩展直接判失败）、源码树关键文件、配置模板与离线参考、以及 Linux zip 内 `start.sh` 与 `python/bin/*` 的可执行位。
+
+`smoke_test.py` 检查（本机平台与包目标平台一致时才跑，否则跳过）：首启引导与配置骨架生成、重复运行的幂等性、`config get`、`doctor`、两条护栏（`update` 与 `gateway start` 都应被拦成 exit 2；`gateway status` 应放行）、以及"没有在宿主机上创建 `~/.hermes`"。它需要"无配置"状态来做首启测试，因此会**先备份你的 `.env` / `config.yaml`、测完自动还原**；同时它会执行一次 `stop.bat` / `stop.sh`（即会停止由这个包启动的 gateway）。
 
 ### 升级到新的上游版本
 
@@ -405,6 +412,7 @@ PBS_RELEASE=20261003
 |---|---|
 | Windows 包（`--extras all`） | ✅ 实测通过：`hermes --version`、`doctor`、`config get`、首启自动生成配置骨架、**整体搬迁到含空格与中文的新路径后仍可运行**、`hermes update` 被拦截（exit 2） |
 | 结构自检 | ✅ `python build/verify.py dist/Uhermes-windows` 全部通过（0 失败 / 0 警告） |
+| 行为冒烟 | ✅ `python build/smoke_test.py dist/Uhermes-windows` **15/15 通过**（首启、幂等、config、doctor、`update`/`gateway start` 拦截、`gateway status` 放行、无宿主机外泄、stop 脚本可用） |
 | **真 U 盘（exFAT, Kingston 28GB）** | ✅ 实测通过：zip 拷到 U 盘后 SHA256 一致；在 U 盘上解压 492 秒 / 400.2 MB / 15,719 文件与源一致；**从 U 盘直接运行** `--version`、`doctor`、`config get` 均正常；首启在 U 盘上生成配置骨架；**SQLite WAL 在 exFAT 上实测可用**（`journal_mode=wal` 生效、写入读回无误） |
 | 交叉安装机制 | ✅ 已验证 `--python-platform x86_64-unknown-linux-gnu` 解析出的是真正的 Linux wheel（`*.cpython-311-x86_64-linux-gnu.so`，无 Windows `.pyd`） |
 | Linux 包的实机运行 | ⚠️ **未验证**：本机没有可用的 Linux 环境（WSL 不可用、无 Docker），且运行时归档在本机构建时下载不稳定。发布 Linux 包前请在 Linux 机器上构建并跑一次 `python build/verify.py dist/Uhermes-linux` |
