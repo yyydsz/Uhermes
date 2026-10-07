@@ -42,7 +42,7 @@ Uhermes（**U**SB + **Hermes**）是 [Hermes Agent](https://github.com/NousResea
 
 把 `Uhermes-windows.zip`（或 `Uhermes-linux.zip`）解压到任意位置 —— U 盘、桌面、D 盘都行。
 
-> **别放在压缩包里直接运行**，必须先解压。Windows 上建议解压到英文路径，中文路径可用但偶有第三方工具不兼容。
+> **别放在压缩包里直接运行**，必须先解压。含空格与中文的路径实测可用（启动器全程加引号，`PYTHONUTF8=1`），但个别第三方工具仍可能对非 ASCII 路径不友好。
 
 ### 2. 启动
 
@@ -84,10 +84,13 @@ KIMI_API_KEY=xxx                 # 月之暗面
 ```bash
 ./start.sh                       # 交互式对话
 ./start.sh "帮我写个备份脚本"      # 单次提问
-./start.sh --help                # 全部命令
+./start.sh --help                # 全部命令（v0.21.5 有 70+ 个子命令）
+./start.sh setup                 # 配置向导
 ./start.sh model                 # 切换模型
 ./start.sh skills                # 管理技能
 ./start.sh gateway               # 接入 Telegram / Discord / Slack
+./start.sh cron                  # 定时任务
+./start.sh logs                  # 看日志（agent.log / errors.log）
 ./start.sh doctor                # 体检：环境、依赖、配置
 ```
 
@@ -286,6 +289,17 @@ python build/build.py --check            # 查上游有没有新版本
 | `--check` | 只检查上游版本，不构建 |
 
 产物：`dist/Uhermes-windows/`、`dist/Uhermes-linux/`，以及同名 `.zip`。
+
+### 自检
+
+构建完（或拿到别人给的包）之后跑一次结构自检。本机平台与包目标平台一致时，它还会真正启动解释器并运行 `hermes --version`：
+
+```bash
+python build/verify.py dist/Uhermes-windows
+python build/verify.py dist/Uhermes-linux
+```
+
+检查内容：启动器（含 CRLF 检查，避免 Linux 上 `bad interpreter`）、便携解释器、site-packages 里原生扩展是否属于目标平台（Windows 应见 `.pyd`、Linux 应见 `.so`，出现错平台扩展直接判失败）、源码树关键文件、配置模板与离线参考、以及 Linux zip 内 `start.sh` 与 `python/bin/*` 的可执行位。
 
 ### 升级到新的上游版本
 

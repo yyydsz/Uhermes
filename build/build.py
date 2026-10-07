@@ -141,6 +141,28 @@ def http_get(url: str, dest: Path, *, expect_bytes: bool = True, attempts: int =
     raise RuntimeError(f"下载失败（已重试 {attempts} 次）：{url}\n  最后错误：{last_error}")
 
 
+EXTRACT_MARKER = ".uhermes-extract-ok"
+
+
+def extract_marker_ok(dest: Path, token: str) -> bool:
+    """判据必须是「上次解包完整跑完」，而不是「某个文件恰好存在」。
+
+    否则一次中途失败的解包（断网、归档截断）会留下部分文件，让下一次构建误以为
+    已完成而跳过下载与解包，产出一个残缺却看不出问题的包。
+    """
+    try:
+        return (dest / EXTRACT_MARKER).read_text(encoding="utf-8").strip() == token
+    except OSError:
+        return False
+
+
+def write_extract_marker(dest: Path, token: str) -> None:
+    try:
+        (dest / EXTRACT_MARKER).write_text(token, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None:
     """显式解包。
 
@@ -148,14 +170,14 @@ def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None
     的环境里会得到不可写目录（CRT _wmkdir 用进程默认 DACL，而不是继承父目录）。
     这里目录一律走 os.makedirs，文件自己写，任何环境都安全。
 
-    符号链接：Linux 运行时归档里带符号链接（如 bin/python3 -> python3.11），
-    而 Windows 上创建符号链接需要开发者模式或管理员权限。因此链接创建失败时
-    延迟到全部文件解包完，再以「复制目标文件」的方式补齐 —— 对本用途等价
-    （它们只是别名，不是硬性链接关系），且后续打 zip 时也不会再丢。
+    链接条目：python-build-standalone 的 Linux 归档里 bin/python3 之类是符号链接，
+    而 Windows 上创建符号链接需要开发者模式或管理员权限；少数归档还用硬链接。
+    两种都在主循环里记下来，等全部文件落地后再补齐（复制或建硬链接），
+    这样既不会因权限失败，也不会因为目标还没解出来而漏掉。
     """
     dest.mkdir(parents=True, exist_ok=True)
-    n_dir = n_file = n_link = n_copy = 0
-    deferred: list[tuple[Path, str]] = []
+    n_dir = n_file = n_sym = n_copy = n_lnk = 0
+    deferred: list[tuple[Path, str, str]] = []  # (target, linkname, kind)
     with tarfile.open(archive, "r:gz") as tf:
         for m in tf:
             parts = list(Path(m.name).parts)
@@ -173,9 +195,15 @@ def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None
                     if target.exists() or target.is_symlink():
                         target.unlink()
                     os.symlink(m.linkname, target)
-                    n_link += 1
+                    n_sym += 1
                 except OSError:
-                    deferred.append((target, m.linkname))
+                    deferred.append((target, m.linkname, "sym"))
+            elif m.islnk():
+                os.makedirs(target.parent, exist_ok=True)
+                link_parts = list(Path(m.linkname).parts)
+                if strip_first and link_parts:
+                    link_parts = link_parts[1:]
+                deferred.append((target, str(Path(*link_parts)), "lnk"))
             elif m.isfile():
                 os.makedirs(target.parent, exist_ok=True)
                 src = tf.extractfile(m)
@@ -187,14 +215,24 @@ def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None
                     os.chmod(target, m.mode | 0o111)
                 n_file += 1
 
-    for target, linkname in deferred:
-        source = (target.parent / linkname)
+    for target, linkname, kind in deferred:
+        # 符号链接的 linkname 相对于本条目所在目录；硬链接的相对于归档根
+        source = (target.parent / linkname) if kind == "sym" else (dest / linkname)
         try:
             resolved = source.resolve(strict=True)
         except OSError:
-            log(f"警告：符号链接目标不存在，跳过 {target.name} -> {linkname}")
+            log(f"警告：链接目标不存在，跳过 {target.name} -> {linkname}")
             continue
         try:
+            if target.exists():
+                target.unlink()
+            if kind == "lnk":
+                try:
+                    os.link(resolved, target)
+                    n_lnk += 1
+                    continue
+                except OSError:
+                    pass  # 跨卷等情况退化为复制
             if resolved.is_dir():
                 shutil.copytree(resolved, target, symlinks=False, dirs_exist_ok=True)
             else:
@@ -205,7 +243,8 @@ def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None
         except OSError as exc:
             log(f"警告：无法补齐 {target.name} -> {linkname}（{exc}）")
 
-    log(f"解包 {archive.name}: dirs={n_dir} files={n_file} symlinks={n_link} copied_links={n_copy}")
+    log(f"解包 {archive.name}: dirs={n_dir} files={n_file} "
+        f"symlinks={n_sym} hardlinks={n_lnk} copied_links={n_copy}")
 
 
 def extract_zip(archive: Path, dest: Path) -> None:
@@ -239,25 +278,37 @@ def which(name: str) -> str | None:
 def fetch_runtime(
     versions: dict[str, str], triple: str, cache: Path, dest: Path, python_exe: str
 ) -> None:
-    if (dest / python_exe).exists():
-        log(f"运行时已存在，跳过：{dest}")
-        return
     name = (
         f"cpython-{versions['PYTHON_VERSION']}+{versions['PBS_RELEASE']}"
         f"-{triple}-{versions['PBS_VARIANT']}.tar.gz"
     )
+    token = f"{name}"
+    # 只有「上次解包完整跑完」才跳过。单看 python_exe 是否存在会被中途失败的解包骗过。
+    if (dest / python_exe).exists() and extract_marker_ok(dest, token):
+        log(f"运行时已存在且完整，跳过：{dest}")
+        return
+    if dest.exists():
+        log(f"运行时目录不完整或来源不符，重新解包：{dest}")
+        shutil.rmtree(dest, ignore_errors=True)
     archive = http_get(f"{PBS}/{versions['PBS_RELEASE']}/{name}", cache / name)
     # PBS 归档顶层固定是 python/，剥掉它，让 dest 直接就是运行时根目录
     extract_tar(archive, dest, strip_first=True)
+    write_extract_marker(dest, token)
 
 
 def fetch_source(versions: dict[str, str], cache: Path, dest: Path) -> None:
     tag = versions["HERMES_TAG"]
-    if dest.exists() and any(dest.iterdir()):
-        log(f"源码树已存在，跳过：{dest}")
+    token = f"hermes-agent-{tag}"
+    if (dest / "pyproject.toml").exists() and extract_marker_ok(dest, token):
+        log(f"源码树已存在且完整，跳过：{dest}")
         return
-    archive = http_get(f"{GH}/NousResearch/hermes-agent/archive/refs/tags/{tag}.tar.gz", cache / f"hermes-agent-{tag}.tar.gz")
+    if dest.exists():
+        log(f"源码树目录不完整或来源不符，重新解包：{dest}")
+        shutil.rmtree(dest, ignore_errors=True)
+    archive = http_get(f"{GH}/NousResearch/hermes-agent/archive/refs/tags/{tag}.tar.gz",
+                       cache / f"hermes-agent-{tag}.tar.gz")
     extract_tar(archive, dest, strip_first=True)
+    write_extract_marker(dest, token)
 
 
 def prune_tree(tree: Path) -> None:
@@ -434,6 +485,14 @@ def assemble(
         ]),
         encoding="utf-8",
     )
+
+    # 8) 清掉构建期用的内部标记，别让它们出现在用户看到的包里
+    for stray in out_dir.rglob(EXTRACT_MARKER):
+        try:
+            stray.unlink()
+        except OSError:
+            pass
+    log(f"组装完成：{out_dir}")
 
 
 def make_zip(out_dir: Path, platform: str) -> Path:
