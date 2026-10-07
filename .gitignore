@@ -1,20 +1,27 @@
-# Build artifacts
-*.pyc
-__pycache__/
-*.egg-info/
+# 构建产物与中间缓存（注意：不要忽略 build/ 本身，构建脚本在版本控制里）
 dist/
-build/
+build/_cache/
 
-# IDE
-.vscode/
-.idea/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Hermes data
+# 便携包运行时数据（构建或实跑产生的用户数据不入库）
 hermes_home/sessions/
 hermes_home/skills/
+hermes_home/logs/
+hermes_home/cron/
+hermes_home/memories/
+hermes_home/lazy-deps/
+hermes_home/runtime/
+hermes_home/cache/
+hermes_home/state.db*
 hermes_home/.env
 hermes_home/config.yaml
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

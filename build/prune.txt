@@ -1,0 +1,40 @@
+# 便携包源码树裁剪清单（build/build.py 读取）
+#
+# 每行一个相对路径；'#' 开头为注释，空行忽略。
+# 判断标准：Python 运行时（CLI / gateway / TUI 后端 / 技能）不需要它。
+# 被裁掉的能力及补救方式写在 README「被裁掉的部分」一节。
+
+# --- 版本控制与 CI ---
+.git
+.github
+.gitattributes
+.gitignore
+.gitmodules
+.coderabbit.yaml
+.hadolint.yaml
+.mailmap
+.pre-commit-config.yaml
+
+# --- 开发/评测/文档 ---
+tests
+tests-js
+evals
+website
+contributors
+docs
+
+# --- 与 Python 运行时无关的打包形态 ---
+docker
+docker-compose.yml
+docker-compose.windows.yml
+Dockerfile
+.dockerignore
+nix
+flake.nix
+flake.lock
+.envrc
+native
+
+# --- Electron 桌面端源码（39MB，需要 Node + electron 才能用）---
+# 裁掉后 `hermes desktop` 之类命令不可用；CLI / TUI / dashboard 不受影响。
+apps

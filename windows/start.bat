@@ -1,35 +1,51 @@
 @echo off
-REM Umes - USB Hermes Portable Launcher (Windows)
-REM 解压后双击此文件即可启动 Hermes Agent
+REM ============================================================================
+REM  Uhermes - USB Hermes Portable Launcher (Windows)
+REM
+REM  Keep this file ASCII-only. cmd.exe parses .bat files in the console code
+REM  page, so non-ASCII text here turns into mojibake when the OEM code page
+REM  differs from the authoring one. All localized text is printed by
+REM  hermes_boot.py, which controls its own encoding.
+REM ============================================================================
+setlocal EnableExtensions
 
-setlocal
-set DIR=%~dp0
-set HERMES_HOME=%DIR%hermes_home
+REM UTF-8 console so the Python side can render CJK correctly.
+chcp 65001 >nul 2>&1
 
-REM 确保配置目录存在
-if not exist "%HERMES_HOME%\skills" mkdir "%HERMES_HOME%\skills"
-if not exist "%HERMES_HOME%\sessions" mkdir "%HERMES_HOME%\sessions"
+set "DIR=%~dp0"
+if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
 
-REM 检查是否已配置
-if not exist "%HERMES_HOME%\.env" (
+REM --- Portable layout -------------------------------------------------------
+REM   DIR\python       portable CPython. Relocatable: its prefix is derived from
+REM                    its own location, so moving the stick or changing the
+REM                    drive letter is safe. (A venv would embed an absolute
+REM                    interpreter path in pyvenv.cfg / the .exe trampoline.)
+REM   DIR\hermes-agent upstream source tree, pinned in versions.env
+REM   DIR\hermes_home  all user data: .env, config.yaml, sessions, skills, state.db
+REM   DIR\bin          optional bundled tools (uv), prepended to PATH
+set "HERMES_HOME=%DIR%\hermes_home"
+set "PYTHONPATH=%DIR%\hermes-agent"
+set "PYTHONNOUSERSITE=1"
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+set "HERMES_LAZY_INSTALL_TARGET=%HERMES_HOME%\lazy-deps"
+set "UV_CACHE_DIR=%HERMES_HOME%\cache\uv"
+set "UV_PYTHON_INSTALL_DIR=%HERMES_HOME%\runtime"
+if exist "%DIR%\bin" set "PATH=%DIR%\bin;%PATH%"
+
+if not exist "%HERMES_HOME%" mkdir "%HERMES_HOME%" >nul 2>&1
+
+set "PY=%DIR%\python\python.exe"
+if not exist "%PY%" (
     echo.
-    echo  ==========================================
-    echo         Umes - USB Hermes Agent
-    echo  ==========================================
-    echo.
-    echo  首次使用，请先配置 API 密钥：
-    echo.
-    echo  1. 复制配置模板：
-    echo     copy hermes_home\.env.example hermes_home\.env
-    echo     copy hermes_home\config.yaml.example hermes_home\config.yaml
-    echo.
-    echo  2. 用记事本编辑 .env 文件，填入 API 密钥
-    echo.
-    echo  详细说明请查看 README.md
+    echo   [Uhermes] Portable Python not found:
+    echo             "%PY%"
+    echo   [Uhermes] The package looks incomplete. Re-extract the zip archive.
     echo.
     pause
     exit /b 1
 )
 
-"%DIR%python\python.exe" "%DIR%hermes-win.pyz" %*
-pause
+"%PY%" "%DIR%\hermes_boot.py" %*
+set "RC=%ERRORLEVEL%"
+endlocal & exit /b %RC%

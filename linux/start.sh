@@ -1,33 +1,53 @@
 #!/bin/bash
-# Umes - USB Hermes Portable Launcher
-# 插上U盘，运行此脚本即可启动 Hermes Agent
+# ============================================================================
+#  Uhermes - USB Hermes Portable Launcher (Linux x86_64)
+#
+#  No venv, no editable install: the portable interpreter derives its prefix
+#  from its own location, and the source tree is simply put on PYTHONPATH.
+#  That is what keeps the bundle relocatable (USB stick, any mount point).
+# ============================================================================
+set -euo pipefail
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve the bundle root from this script's real location (follow symlinks).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$DIR/$SOURCE" ;;
+    esac
+done
+DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# --- Portable layout --------------------------------------------------------
+#   DIR/python       portable CPython (relocatable)
+#   DIR/hermes-agent upstream source tree, pinned in versions.env
+#   DIR/hermes_home  all user data: .env, config.yaml, sessions, skills, state.db
+#   DIR/bin          optional bundled tools (uv), prepended to PATH
 export HERMES_HOME="$DIR/hermes_home"
+export PYTHONPATH="$DIR/hermes-agent"
+export PYTHONNOUSERSITE=1
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+export HERMES_LAZY_INSTALL_TARGET="$HERMES_HOME/lazy-deps"
+export UV_CACHE_DIR="$HERMES_HOME/cache/uv"
+export UV_PYTHON_INSTALL_DIR="$HERMES_HOME/runtime"
+if [ -d "$DIR/bin" ]; then
+    export PATH="$DIR/bin:$PATH"
+fi
 
-# 确保配置目录存在
-mkdir -p "$HERMES_HOME/skills" "$HERMES_HOME/sessions"
+mkdir -p "$HERMES_HOME"
 
-# 检查是否已配置
-if [ ! -f "$HERMES_HOME/.env" ]; then
+PY="$DIR/python/bin/python3.11"
+if [ ! -x "$PY" ]; then
     echo ""
-    echo "  =========================================="
-    echo "  |        Umes - USB Hermes Agent         |"
-    echo "  =========================================="
-    echo ""
-    echo "  首次使用，请先配置 API 密钥："
-    echo ""
-    echo "  1. 复制配置模板："
-    echo "     cp hermes_home/.env.example hermes_home/.env"
-    echo ""
-    echo "  2. 编辑 .env 文件，填入 API 密钥"
-    echo ""
-    echo "  3. 复制配置文件："
-    echo "     cp hermes_home/config.yaml.example hermes_home/config.yaml"
-    echo ""
-    echo "  详细说明请查看 README.md"
+    echo "  [Uhermes] Portable Python not found: $PY"
+    echo "  [Uhermes] The package looks incomplete. Re-extract the archive."
+    echo "  [Uhermes] If permissions were lost (FAT/exFAT stick), run:"
+    echo "            chmod +x \"$DIR/python/bin/\"*"
     echo ""
     exit 1
 fi
 
-exec "$DIR/python/bin/python3.11" "$DIR/hermes.pex" "$@"
+exec "$PY" "$DIR/hermes_boot.py" "$@"
