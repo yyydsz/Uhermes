@@ -83,7 +83,7 @@ KIMI_API_KEY=xxx                 # 月之暗面
 
 ```bash
 ./start.sh                       # 交互式对话
-./start.sh "帮我写个备份脚本"      # 单次提问
+./start.sh -z "帮我写个备份脚本"   # 单次提问（-z / --oneshot，打印完回复就退出）
 ./start.sh --help                # 全部命令（v0.21.5 有 70+ 个子命令）
 ./start.sh setup                 # 配置向导
 ./start.sh model                 # 切换模型
@@ -93,6 +93,8 @@ KIMI_API_KEY=xxx                 # 月之暗面
 ./start.sh logs                  # 看日志（agent.log / errors.log）
 ./start.sh doctor                # 体检：环境、依赖、配置
 ```
+
+> 裸写一句话（`./start.sh "你好"`）会被当成子命令名并报 `is not a hermes command`，必须带 `-z`，或用 `./start.sh chat -q "你好"`。
 
 ---
 
