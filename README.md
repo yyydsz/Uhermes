@@ -229,6 +229,8 @@ display:
 | `hermes_home/` | < 1 MB | 初始只有模板，用起来才增长 |
 | **合计** | **400 MB** | zip 压缩后 **125 MB** |
 
+Linux 包（在 Windows 上交叉构建）实测：表观 487 MB / **真实占用 421 MB**（690 组硬链接共享省下 66 MB —— python-build-standalone 的 Linux 归档用链接表示 `bin/python3 -> python3.11` 这类别名，构建器会用硬链接还原），zip 压缩后 **152 MB**。
+
 （跑起来之后 `python/` 与 `hermes-agent/` 会多出约 12 MB 的字节码缓存，属于正常现象。）
 
 想要更小：构建时用 `--extras core`（核心依赖从 318 个包降到 173 个，消息平台/语音等改为首次使用时按需下载）。
@@ -406,6 +408,11 @@ PBS_RELEASE=20261003
 
 `--cross` 在 Windows 上构建 Linux 包时，走的是 `uv pip install --python-platform x86_64-unknown-linux-gnu --target ...` —— 只解析并铺开 Linux wheel，**无法在本机运行验证**。如果某个依赖在目标平台没有 wheel，构建会在安装阶段直接报错（而不是产出一个坏包）。要在发布前确认，请在真实 Linux 机器上跑一次 `./build/build-linux.sh`。
 
+交叉构建还有两个由此产生的现实约束：
+
+- **务必用 zip 分发**。Windows 文件系统不保存 Unix 权限位（`os.chmod` 只能改只读属性），所以交叉构建出的**目录形式**里 `start.sh`、`python/bin/*` 没有执行位；`build.py` 在打 zip 时会显式写入 `0o755`。若你是直接拷贝目录过去，先 `chmod +x start.sh stop.sh python/bin/*`。
+- **链接条目靠硬链接补齐**。python-build-standalone 的 Linux 归档用 1000+ 个链接表示 `bin/python3 -> python3.11`、`lib/*.so -> *.so.1.0` 这类别名；Windows 上建不了符号链接，构建器改为建**硬链接**（同一卷内零额外空间），跨卷时才退化为复制。
+
 ### 本版本的验证状态
 
 | 项 | 状态 |
@@ -415,7 +422,8 @@ PBS_RELEASE=20261003
 | 行为冒烟 | ✅ `python build/smoke_test.py dist/Uhermes-windows` **15/15 通过**（首启、幂等、config、doctor、`update`/`gateway start` 拦截、`gateway status` 放行、无宿主机外泄、stop 脚本可用） |
 | **真 U 盘（exFAT, Kingston 28GB）** | ✅ 实测通过：zip 拷到 U 盘后 SHA256 一致；在 U 盘上解压 492 秒 / 400.2 MB / 15,719 文件与源一致；**从 U 盘直接运行** `--version`、`doctor`、`config get` 均正常；首启在 U 盘上生成配置骨架；**SQLite WAL 在 exFAT 上实测可用**（`journal_mode=wal` 生效、写入读回无误） |
 | 交叉安装机制 | ✅ 已验证 `--python-platform x86_64-unknown-linux-gnu` 解析出的是真正的 Linux wheel（`*.cpython-311-x86_64-linux-gnu.so`，无 Windows `.pyd`） |
-| Linux 包的实机运行 | ⚠️ **未验证**：本机没有可用的 Linux 环境（WSL 不可用、无 Docker），且运行时归档在本机构建时下载不稳定。发布 Linux 包前请在 Linux 机器上构建并跑一次 `python build/verify.py dist/Uhermes-linux` |
+| Linux 包（交叉构建产物） | ✅ 已产出并**结构验证通过**：`dist/Uhermes-linux` 15,462 文件，表观 487.1 MB / 真实占用 **420.7 MB**（690 组硬链接共享省下 66.4 MB），zip **152.2 MB**；site-packages 209 个包 / 36 个 Linux `.so` / 0 个 `.pyd`；`python/bin` 14 个链接条目全部补齐、0 断链；zip 内 `start.sh`、`stop.sh`、`python/bin/python3.11` 权限均为 `0o755` |
+| Linux 包的**实机运行** | ⚠️ **仍未验证**：本机没有可用的 Linux 环境（WSL 不可用、无 Docker），无法执行 Linux 二进制。请在 Linux 上跑 `./start.sh --version` 与 `python3 build/smoke_test.py dist/Uhermes-linux` |
 | 插到**另一台没装 Python 的电脑** | ⚠️ 只有你能测：这一步验证的是「U 盘即插即用」的最终承诺 |
 
 ---

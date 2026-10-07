@@ -228,7 +228,12 @@ def extract_tar(archive: Path, dest: Path, *, strip_first: bool = False) -> None
         try:
             if target.exists():
                 target.unlink()
-            if kind == "lnk":
+            # 目标是普通文件时优先建硬链接：Linux 运行时归档里有 1000+ 个链接条目
+            # （bin/python3 -> python3.11、lib/*.so -> *.so.1.0、terminfo 等），
+            # 在 Windows 上建不了符号链接就只能复制 —— 那会把 21MB 的解释器和一批
+            # .so 各复制一份，实测让交叉构建的包白白大出 87MB。硬链接在 NTFS 上可用，
+            # 且同样"零额外空间"。
+            if resolved.is_file():
                 try:
                     os.link(resolved, target)
                     n_lnk += 1
@@ -311,6 +316,49 @@ def fetch_source(versions: dict[str, str], cache: Path, dest: Path) -> None:
                        cache / f"hermes-agent-{tag}.tar.gz")
     extract_tar(archive, dest, strip_first=True)
     write_extract_marker(dest, token)
+
+
+def copy_tree(src: Path, dst: Path) -> None:
+    """复制目录树，并**保留硬链接关系与符号链接**。
+
+    不能用 shutil.copytree：它逐文件复制内容，会把硬链接展开成多份独立副本 ——
+    Linux 运行时归档里 1000+ 个链接条目（bin/python3 -> python3.11、lib/*.so 等）
+    因此在产物里变成实打实的重复数据，实测白白多出约 87MB。
+    """
+    seen: dict[tuple[int, int], Path] = {}
+    dst.mkdir(parents=True, exist_ok=True)
+
+    def walk(source_dir: Path, target_dir: Path) -> None:
+        for entry in os.scandir(source_dir):
+            target = target_dir / entry.name
+            try:
+                if entry.is_symlink():
+                    if target.exists() or target.is_symlink():
+                        target.unlink()
+                    os.symlink(os.readlink(entry.path), target)
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    target.mkdir(exist_ok=True)
+                    walk(Path(entry.path), target)
+                    continue
+                # 必须用 os.stat 而不是 entry.stat()：Windows 上 DirEntry.stat()
+                # 返回的 st_nlink/st_ino/st_dev 全是 0（实测），会让下面的共享判定
+                # 永远不成立 —— 这正是第一版 copy_tree "看着对、其实没生效" 的原因。
+                st = os.stat(entry.path, follow_symlinks=False)
+                key = (st.st_dev, st.st_ino)
+                if st.st_nlink > 1 and key in seen:
+                    try:
+                        os.link(seen[key], target)
+                        continue
+                    except OSError:
+                        pass  # 跨卷等：退化为复制
+                shutil.copy2(entry.path, target)
+                if st.st_nlink > 1:
+                    seen[key] = target
+            except OSError as exc:
+                log(f"警告：复制 {entry.path} 失败（{exc}）")
+
+    walk(src, dst)
 
 
 def prune_tree(tree: Path) -> None:
@@ -432,9 +480,9 @@ def assemble(
 
     # 用复制而不是移动：保留 stage，重复构建时不必重新解包 4000+ 个文件
     # 1) 便携解释器
-    shutil.copytree(stage / "python", out_dir / "python", symlinks=True)
+    copy_tree(stage / "python", out_dir / "python")
     # 2) 上游源码树
-    shutil.copytree(stage / "hermes-agent", out_dir / "hermes-agent", symlinks=True)
+    copy_tree(stage / "hermes-agent", out_dir / "hermes-agent")
     # 3) 启动器 + 清理脚本（stop 用于停止 gateway 并移除宿主机自启，之后才能安全拔盘）
     for key in ("launcher", "stop"):
         src = REPO / cfg[key]
