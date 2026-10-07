@@ -140,6 +140,40 @@ Uhermes-windows/  (或 Uhermes-linux/)
 | 命令行改单项 | `./start.sh config set display.skin ares` | 会保留配置文件里的注释与键序 |
 | 直接编辑 | 打开 `hermes_home/config.yaml` | 有中文注释模板可选，改完下次启动生效 |
 
+### 接自建 / 中转端点（OpenAI 兼容）
+
+这是最容易配错的一处：**密钥只能写在 `.env`，`config.yaml` 里只写「变量名」**。
+
+`hermes_home/.env`：
+
+```env
+MY_GATEWAY_KEY=sk-your-real-key
+```
+
+`hermes_home/config.yaml`：
+
+```yaml
+model:
+  default: "your-model-name"
+  provider: custom
+  base_url: "http://your-gateway:8080/v1"
+  api_key: "${MY_GATEWAY_KEY}"     # 引用 .env 里的变量，不要直接写密钥
+```
+
+两个常见错误会导致「API Key 无效」：
+
+1. **`.env` 里把 `base_url` 填进了密钥变量**（例如 `MY_GATEWAY_KEY=http://...`）——
+   请求会带着这个 URL 当 Bearer token 发出去；
+2. **把密钥写进 `custom_providers[].key_env`**——该字段要的是**环境变量名**，
+   要直接写密钥得用 `api_key`。
+
+验证是否配对：`./start.sh -z "只回复两个字：成功"`。若报 401，看
+`hermes_home/logs/errors.log`，其中会打印实际的 `provider=` 与 `base_url=`，
+可据此判断密钥到底有没有被用上。
+
+> `.env` 行内注释：`KEY=值   # 注释`（井号前有空格）会被正确剥离；
+> 但 `KEY=值#注释`（紧贴）会把注释当成值的一部分。
+
 ### 便携场景值得改的几项
 
 ```yaml
