@@ -180,16 +180,18 @@ display:
 
 ### Q: 体积为什么比上一版大这么多？
 
-因为上游 Hermes 从 v0.9.0 长到 v0.21.5 已经是另一个量级的项目：Desktop 插件 SDK、Web dashboard、TUI、约 20 个消息平台适配器、插件目录、几十个 provider。而且它不再发布 wheel，只能带着源码树跑。构建时已裁掉 `tests/`、`website/`、`apps/`（Electron 桌面端）、`evals/` 等约 113 MB 非运行时内容。
+因为上游 Hermes 从 v0.9.0 长到 v0.21.5 已经是另一个量级的项目：Desktop 插件 SDK、Web dashboard、TUI、约 20 个消息平台适配器、插件目录、几十个 provider。而且它不再发布 wheel，只能带着源码树跑。构建时已裁掉 `tests/`、`website/`、`apps/`（Electron 桌面端）、`evals/` 等约 131 MB 非运行时内容。
 
-实测（Windows x86_64，`--extras all`）：
+实测（Windows x86_64，`--extras all`，构建脚本口径）：
 
 | 部分 | 解压后 | 说明 |
 |---|---|---|
-| `python/` | 317 MB | 便携解释器 + 318 个依赖包 |
-| `hermes-agent/` | 64 MB | 上游源码树（已从 178 MB 裁剪到 64 MB） |
+| `python/` | 333 MB | 便携解释器 + 318 个依赖包 |
+| `hermes-agent/` | 67 MB | 上游源码树（原树 198 MB，裁剪后 67 MB） |
 | `hermes_home/` | < 1 MB | 初始只有模板，用起来才增长 |
 | **合计** | **400 MB** | zip 压缩后 **125 MB** |
+
+（跑起来之后 `python/` 与 `hermes-agent/` 会多出约 12 MB 的字节码缓存，属于正常现象。）
 
 想要更小：构建时用 `--extras core`（核心依赖从 318 个包降到 173 个，消息平台/语音等改为首次使用时按需下载）。
 
@@ -318,6 +320,15 @@ PBS_RELEASE=20261003
 ### 交叉构建的边界
 
 `--cross` 在 Windows 上构建 Linux 包时，走的是 `uv pip install --python-platform x86_64-unknown-linux-gnu --target ...` —— 只解析并铺开 Linux wheel，**无法在本机运行验证**。如果某个依赖在目标平台没有 wheel，构建会在安装阶段直接报错（而不是产出一个坏包）。要在发布前确认，请在真实 Linux 机器上跑一次 `./build/build-linux.sh`。
+
+### 本版本的验证状态
+
+| 项 | 状态 |
+|---|---|
+| Windows 包（`--extras all`） | ✅ 实测通过：`hermes --version`、`doctor`、`config get`、首启自动生成配置骨架、**整体搬迁到含空格与中文的新路径后仍可运行**、`hermes update` 被拦截（exit 2） |
+| 结构自检 | ✅ `python build/verify.py dist/Uhermes-windows` 全部通过（0 失败 / 0 警告） |
+| 交叉安装机制 | ✅ 已验证 `--python-platform x86_64-unknown-linux-gnu` 解析出的是真正的 Linux wheel（`*.cpython-311-x86_64-linux-gnu.so`，无 Windows `.pyd`） |
+| Linux 包的实机运行 | ⚠️ **未验证**：本机没有可用的 Linux 环境（WSL 不可用、无 Docker），且运行时归档在本机构建时下载不稳定。发布 Linux 包前请在 Linux 机器上构建并跑一次 `python build/verify.py dist/Uhermes-linux` |
 
 ---
 
